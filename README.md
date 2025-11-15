@@ -14,6 +14,7 @@ NY_IDER_LakeHouse/
 ├─ Dockerfile
 ├─ pyproject.toml
 ├─ README.md
+├─ .gitignore
 ├─ src/
 │  └─ lakehouse/
 │     ├─ __init__.py
@@ -29,6 +30,18 @@ NY_IDER_LakeHouse/
 ./ingest/    # put CSV/Parquet files here to be ingested into bronze
 ./data/      # the DuckDB file lives here: ./data/lakehouse.duckdb
 ```
+
+## Dependencies
+
+For Docker version:
+
+* docker
+
+For local install:
+
+* python-venv
+* apache-arrow
+
 
 ## Dockerfile
 
@@ -66,7 +79,7 @@ SELECT current_database();
 .show tables
 ```
 
-Run the ETL (Bronze → Silver → Gold → Platinum)
+## Run the ETL (Bronze → Silver → Gold → Platinum)
 ```bash
 docker run --rm -it \
   -v "$(pwd)/ingest:/ingest" \
@@ -74,16 +87,6 @@ docker run --rm -it \
   duckdb-lakehouse:latest \
   python -m lakehouse --source /ingest --db /data/lakehouse.duckdb
 ```
-
-Run tests
-```bash
-docker run --rm -it \
-  -v "$(pwd)/ingest:/ingest" \
-  -v "$(pwd)/data:/data" \
-  duckdb-lakehouse:latest \
-  pytest -q
-```
-
 
 
 ## Unit tests (pytest)
@@ -94,10 +97,18 @@ These tests create temporary data and a temporary DuckDB file so they don’t to
 * Bronze/Silver/Gold/Platinum tables & views are produced.
 * ETL logic (row counts and simple aggregations).
 
-
 Run inside the container with: `pytest -q`
 
-## Example local test (without Docker)
+### Run tests
+```bash
+docker run --rm -it \
+  -v "$(pwd)/ingest:/ingest" \
+  -v "$(pwd)/data:/data" \
+  duckdb-lakehouse:latest \
+  pytest -q
+```
+
+## Example local usage for ETL, CLI, and pytest (without Docker)
 
 If you want to run it locally:
 

@@ -1,0 +1,6 @@
+# Ignore recommended venv folder
+.venv
+
+# Ignore recommended ingest and data folders
+ingest
+data
