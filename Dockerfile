@@ -26,4 +26,4 @@ RUN pip install --no-cache-dir -e . && \
 RUN mkdir -p /ingest /data
 
 # By default: go straight to an SQL REPL against the persisted DB file
-CMD ["duckcli"]
+CMD ["duckcli", "/data/lakehouse.duckdb"]

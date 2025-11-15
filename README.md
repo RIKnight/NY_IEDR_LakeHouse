@@ -61,8 +61,8 @@ docker build -t duckdb-lakehouse:latest .
 mkdir -p ./ingest ./data
 ```
 
-* Put source files to ingest in ./ingest (CSV or Parquet).
-* The DuckDB file will persist at ./data/lakehouse.duckdb.
+* Put source files to ingest in `./ingest` (CSV or Parquet).
+* The DuckDB file will persist at `./data/lakehouse.duckdb`.
 
 
 ## Start SQL REPL (default)
@@ -73,10 +73,10 @@ docker run --rm -it \
   duckdb-lakehouse:latest
 ```
 
-You’ll drop into duckcli connected to /data/lakehouse.duckdb:
+You’ll drop into duckcli connected to `/data/lakehouse.duckdb`.  Try executing commands:
 ```SQL
 SELECT current_database();
-.show tables
+SHOW ALL TABLES;
 ```
 
 ## Run the ETL (Bronze → Silver → Gold → Platinum)
@@ -156,11 +156,12 @@ docker run --rm -it -v "$(pwd)/ingest:/ingest" -v "$(pwd)/data:/data" duckdb-lak
 ```
 
 
-## Copyright
-
-Copyright 2025 Robert Knight
-
 ## Acknowlegements
 
 This architecture in this package was designed with the help of Microsoft Copilot (GPT-5).  To get started, I gave it the following prompt: "Help me design a lightweight data lakehouse based on duckDB and Python 3.12 in a Docker container.  Include a docker bind mount for ingesting data from the host and for data persistence.  Include an SQL REPL that can be launched as the Docker run command. In Python code, build a medallion architecture in the duckDB with bronze, silver, gold, and platinum layers.  Include pytest unit testing for duckDB schema, tables and ETL routines."
+
+
+## Copyright
+
+Copyright 2025 Robert Knight
 

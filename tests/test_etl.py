@@ -13,7 +13,7 @@ CUSTOMERS_CSV = """customer_id,name
 
 ORDERS_CSV = """order_id,customer_id,amount
 101,1,120.00
-102,1,80.50
+102,1,60.50
 103,2,42.00
 104,3,200.00
 """
