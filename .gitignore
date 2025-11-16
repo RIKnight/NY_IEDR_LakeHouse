@@ -4,3 +4,7 @@
 # Ignore recommended ingest and data folders
 ingest
 data
+
+# Ignore other bloat files
+__pycache__
+.DS_Store

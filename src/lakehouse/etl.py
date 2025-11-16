@@ -34,7 +34,7 @@ def bronze_ingest(con: duckdb.DuckDBPyConnection, source_dir: Path | None = None
                 f"""
                 CREATE OR REPLACE TABLE {full} AS
                 SELECT *, now()::TIMESTAMP AS _ingested_at
-                FROM read_csv_auto(?, HEADER=TRUE, SAMPLE_SIZE=20000);
+                FROM read_csv_auto(?, HEADER=TRUE, SAMPLE_SIZE=20000, nullstr=['NULL','null']);
                 """,
                 [str(path)],
             )
@@ -72,13 +72,44 @@ def silver_transform(con: duckdb.DuckDBPyConnection, tables: Iterable[str] | Non
 
     out: list[str] = []
     for t in bronze_tables:
-        con.execute(
-            f"""
-            CREATE OR REPLACE TABLE {CONFIG.silver}.{t} AS
-            SELECT DISTINCT * EXCLUDE (_ingested_at), _ingested_at
-            FROM {CONFIG.bronze}.{t};
-            """
-        )
+        #print(f"Working from table {CONFIG.bronze}.{t}:")
+        if t in ['utility1_install_der','utility1_planned_der']:
+            print(f"Working from table {CONFIG.bronze}.{t}:")
+            con.execute(
+                f"""
+                CREATE OR REPLACE TABLE {CONFIG.silver}.{t} AS
+                SELECT DISTINCT * EXCLUDE (_ingested_at), TRY_CAST(ProjectCircuitID AS BIGINT) AS PCID_int, _ingested_at
+                FROM {CONFIG.bronze}.{t};
+                """
+            )
+        else:
+            con.execute(
+                f"""
+                CREATE OR REPLACE TABLE {CONFIG.silver}.{t} AS
+                SELECT DISTINCT * EXCLUDE (_ingested_at), _ingested_at
+                FROM {CONFIG.bronze}.{t};
+                """
+            )
+        # create null values from default "null"
+        #column_names = con.execute(
+        #    f"""
+        #    SELECT column_name, data_type FROM information_schema.columns
+        #    WHERE table_schema = '{CONFIG.bronze}' AND table_name = '{t}'
+        #    """
+        #).fetchall()
+        #print(column_names)
+        #for column_name, data_type in column_names:  #[(column_name[0], data_type[0]) for (column_name, data_type) in column_names]:
+        #    if data_type == 'VARCHAR':
+        #        con.execute(
+        #            f"""
+        #            UPDATE {CONFIG.silver}.{t}
+        #            SET {column_name} = CASE
+        #                WHEN LOWER({column_name}) = 'null' THEN NULL
+        #                ELSE {column_name}
+        #            END
+        #            WHERE LOWER({column_name}) = 'null';
+        #            """
+        #        )
         out.append(f"{CONFIG.silver}.{t}")
     return out
 
@@ -161,12 +192,12 @@ def run_all(db_path: str | None = None, source_dir: str | None = None) -> None:
         ensure_schemas(con)
         b = bronze_ingest(con, Path(source_dir) if source_dir else None)
         s = silver_transform(con, b)
-        g = gold_transform(con)
-        p = platinum_transform(con)
+        #g = gold_transform(con)
+        #p = platinum_transform(con)
         con.commit()
         print("BRONZE:", b)
         print("SILVER:", s)
-        print("GOLD:", g)
-        print("PLATINUM:", p)
+        #print("GOLD:", g)
+        #print("PLATINUM:", p)
     finally:
         con.close()
