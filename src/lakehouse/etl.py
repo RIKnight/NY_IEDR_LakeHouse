@@ -70,11 +70,68 @@ def silver_transform(con: duckdb.DuckDBPyConnection, tables: Iterable[str] | Non
     else:
         bronze_tables = [t.split(".")[-1] for t in tables]
 
-    out: list[str] = []
+    created: list[str] = []
     for t in bronze_tables:
         #print(f"Working from table {CONFIG.bronze}.{t}:")
-        if t in ['utility1_install_der','utility1_planned_der']:
-            print(f"Working from table {CONFIG.bronze}.{t}:")
+        if t == 'utility1_circuits':
+            # adjust automatic types to numeric and timestamp with time zone and name the index
+            con.execute(
+                f"""
+                CREATE OR REPLACE TABLE {CONFIG.silver}.{t} AS
+                SELECT
+                    column00 AS INDEX,
+                    Circuits_Phase3_CIRCUIT,
+                    Circuits_Phase3_NUMPHASES,
+                    Circuits_Phase3_OVERUNDER,
+                    Circuits_Phase3_PHASE,
+                    TRY_CAST(NYHCPV_csv_NSECTION AS BIGINT) AS NYHCPV_csv_NSECTION,
+                    TRY_CAST(NYHCPV_csv_NFEEDER AS BIGINT) AS NYHCPV_csv_NFEEDER,
+                    TRY_CAST(NYHCPV_csv_NVOLTAGE AS DOUBLE) AS NYHCPV_csv_NVOLTAGE,
+                    TRY_CAST(NYHCPV_csv_NMAXHC AS DOUBLE) AS NYHCPV_csv_NMAXHC,
+                    NYHCPV_csv_NMAPCOLOR,
+                    TRY_CAST(NYHCPV_csv_FFEEDER AS BIGINT) AS NYHCPV_csv_FFEEDER,
+                    TRY_CAST(NYHCPV_csv_FVOLTAGE AS DOUBLE) AS NYHCPV_csv_FVOLTAGE,
+                    TRY_CAST(NYHCPV_csv_FMAXHC AS DOUBLE) AS NYHCPV_csv_FMAXHC,
+                    TRY_CAST(NYHCPV_csv_FMINHC AS DOUBLE) AS NYHCPV_csv_FMINHC,
+                    TRY_CAST(NYHCPV_csv_FHCADATE AS TIMESTAMPTZ) AS NYHCPV_csv_FHCADATE,
+                    NYHCPV_csv_FNOTES,
+                    Shape_Length,
+                    _ingested_at
+                FROM {CONFIG.bronze}.{t};
+                """
+            )
+        elif t == 'utility2_install_der':
+            con.execute(
+                f"""
+                CREATE OR REPLACE TABLE {CONFIG.silver}.{t} AS
+                SELECT
+                    * EXCLUDE (_ingested_at, DER_NAMEPLATE_RATING),
+                    TRY_CAST(DER_NAMEPLATE_RATING AS DOUBLE) AS DER_NAMEPLATE_RATING,
+                    _ingested_at
+                FROM {CONFIG.bronze}.{t};
+                """
+            )
+        elif t == 'utility2_planned_der':
+            con.execute(
+                f"""
+                CREATE OR REPLACE TABLE {CONFIG.silver}.{t} AS
+                SELECT
+                    DER_TYPE,
+                    TRY_CAST(DER_NAMEPLATE_RATING AS DOUBLE) AS DER_NAMEPLATE_RATING,
+                    INVERTER_NAMEPLATE_RATING,
+                    TRY_CAST(PLANNED_INSTALLATION_DATE AS TIMESTAMP) AS PLANNED_INSTALLATION_DATE,
+                    DER_STATUS,
+                    DER_STATUS_RATIONALE,
+                    TRY_CAST(TOTAL_MW_FOR_SUBSTATION AS DOUBLE) AS TOTAL_MW_FOR_SUBSTATION,
+                    INTERCONNECTION_QUEUE_REQUEST_ID,
+                    TRY_CAST(INTERCONNECTION_QUEUE_POSITION AS TIMESTAMP) AS INTERCONNECTION_QUEUE_POSITION,
+                    DER_INTERCONNECTION_LOCATION,
+                    _ingested_at
+                FROM {CONFIG.bronze}.{t};
+                """
+            )
+        elif t in ['utility1_install_der','utility1_planned_der']:
+            # Since utility1_circuits.Circuits_Phase3_CIRCUIT is BIGINT, need to create BIGINT columns to match
             con.execute(
                 f"""
                 CREATE OR REPLACE TABLE {CONFIG.silver}.{t} AS
@@ -110,13 +167,14 @@ def silver_transform(con: duckdb.DuckDBPyConnection, tables: Iterable[str] | Non
         #            WHERE LOWER({column_name}) = 'null';
         #            """
         #        )
-        out.append(f"{CONFIG.silver}.{t}")
-    return out
+        created.append(f"{CONFIG.silver}.{t}")
+    return created
 
 def gold_transform(con: duckdb.DuckDBPyConnection) -> list[str]:
     """
-    Creates curated marts. If 'customers' and 'orders' exist in silver,
-    builds a joined 'gold.sales' table as an example.
+    #Creates curated marts. If 'customers' and 'orders' exist in silver,
+    #builds a joined 'gold.sales' table as an example.
+    Aggregate circuit segments into circuits in utility1 tables
     """
     ensure_schemas(con)
     have_customers = bool(con.execute(
@@ -152,6 +210,25 @@ def gold_transform(con: duckdb.DuckDBPyConnection) -> list[str]:
             """
         )
         created.append(f"{CONFIG.gold}.sales")
+
+    # utility1_circuits
+    t = "utility1_circuits"
+    con.execute(
+        f"""
+        CREATE OR REPLACE TABLE {CONFIG.gold}.{t} AS
+        SELECT
+            Circuits_Phase3_CIRCUIT,
+
+            o.order_id,
+            o.customer_id,
+            c.name AS customer_name,
+            CAST(o.amount AS DOUBLE) AS amount,
+            o._ingested_at
+        FROM {CONFIG.silver}.{t}
+        GROUP BY Circuits_Phase3_CIRCUIT;
+        """
+    )
+    created.append(f"{CONFIG.gold}.{t}")
     return created
 
 def platinum_transform(con: duckdb.DuckDBPyConnection) -> list[str]:
