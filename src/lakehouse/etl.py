@@ -170,65 +170,64 @@ def silver_transform(con: duckdb.DuckDBPyConnection, tables: Iterable[str] | Non
         created.append(f"{CONFIG.silver}.{t}")
     return created
 
-def gold_transform(con: duckdb.DuckDBPyConnection) -> list[str]:
+def gold_transform(con: duckdb.DuckDBPyConnection, tables: Iterable[str] | None = None) -> list[str]:
     """
-    #Creates curated marts. If 'customers' and 'orders' exist in silver,
-    #builds a joined 'gold.sales' table as an example.
-    Aggregate circuit segments into circuits in utility1 tables
+    Aggregates circuit segments into circuits in utility1 tables
     """
     ensure_schemas(con)
-    have_customers = bool(con.execute(
-        """
-        SELECT 1 FROM information_schema.tables
-        WHERE table_schema = ? AND table_name = 'customers'
-        """,
-        [CONFIG.silver],
-    ).fetchone())
-
-    have_orders = bool(con.execute(
-        """
-        SELECT 1 FROM information_schema.tables
-        WHERE table_schema = ? AND table_name = 'orders'
-        """,
-        [CONFIG.silver],
-    ).fetchone())
+    if tables is None:
+        rows = con.execute(
+            """
+            SELECT table_name
+            FROM information_schema.tables
+            WHERE table_schema = ?
+            ORDER BY 1
+            """,
+            [CONFIG.silver],
+        ).fetchall()
+        silver_tables = [r[0] for r in rows]
+    else:
+        silver_tables = [t.split(".")[-1] for t in tables]
 
     created: list[str] = []
-    if have_customers and have_orders:
-        con.execute(
-            f"""
-            CREATE OR REPLACE TABLE {CONFIG.gold}.sales AS
-            SELECT
-                o.order_id,
-                o.customer_id,
-                c.name AS customer_name,
-                CAST(o.amount AS DOUBLE) AS amount,
-                o._ingested_at
-            FROM {CONFIG.silver}.orders o
-            LEFT JOIN {CONFIG.silver}.customers c
-              ON o.customer_id = c.customer_id;
-            """
-        )
-        created.append(f"{CONFIG.gold}.sales")
-
-    # utility1_circuits
-    t = "utility1_circuits"
-    con.execute(
-        f"""
-        CREATE OR REPLACE TABLE {CONFIG.gold}.{t} AS
-        SELECT
-            Circuits_Phase3_CIRCUIT,
-
-            o.order_id,
-            o.customer_id,
-            c.name AS customer_name,
-            CAST(o.amount AS DOUBLE) AS amount,
-            o._ingested_at
-        FROM {CONFIG.silver}.{t}
-        GROUP BY Circuits_Phase3_CIRCUIT;
-        """
-    )
-    created.append(f"{CONFIG.gold}.{t}")
+    for t in silver_tables:
+        # utility1_circuits: GROUP BY Circuits_Phase3_CIRCUIT, aggregate by MODE()
+        if t == "utility1_circuits":
+            con.execute(
+                f"""
+                CREATE OR REPLACE TABLE {CONFIG.gold}.{t} AS
+                SELECT
+                    Circuits_Phase3_CIRCUIT,
+                    MODE(Circuits_Phase3_NUMPHASES) AS Circuits_Phase3_NUMPHASES,
+                    MODE(Circuits_Phase3_OVERUNDER) AS Circuits_Phase3_OVERUNDER,
+                    MODE(Circuits_Phase3_PHASE) AS Circuits_Phase3_PHASE,
+                    MIN(NYHCPV_csv_NSECTION) AS NYHCPV_csv_NSECTION_MIN,
+                    MAX(NYHCPV_csv_NSECTION) AS NYHCPV_csv_NSECTION_MAX,
+                    MODE(NYHCPV_csv_NFEEDER) AS NYHCPV_csv_NFEEDER,
+                    MODE(NYHCPV_csv_NVOLTAGE) AS NYHCPV_csv_NVOLTAGE,
+                    MODE(NYHCPV_csv_NMAXHC) AS NYHCPV_csv_NMAXHC,
+                    MODE(NYHCPV_csv_NMAPCOLOR) AS NYHCPV_csv_NMAPCOLOR,
+                    MODE(NYHCPV_csv_FFEEDER) AS NYHCPV_csv_FFEEDER,
+                    MODE(NYHCPV_csv_FVOLTAGE) AS NYHCPV_csv_FVOLTAGE,
+                    MODE(NYHCPV_csv_FMAXHC) AS NYHCPV_csv_FMAXHC,
+                    MODE(NYHCPV_csv_FMINHC) AS NYHCPV_csv_FMINHC,
+                    MODE(NYHCPV_csv_FHCADATE) AS NYHCPV_csv_FHCADATE,
+                    MODE(NYHCPV_csv_FNOTES) AS NYHCPV_csv_FNOTES,
+                    SUM(Shape_Length) AS Shape_Length_sum,
+                    MAX(_ingested_at) AS _ingested_at
+                FROM {CONFIG.silver}.{t}
+                GROUP BY Circuits_Phase3_CIRCUIT;
+                """
+            )
+        else:
+            con.execute(
+                f"""
+                CREATE OR REPLACE TABLE {CONFIG.gold}.{t} AS
+                SELECT DISTINCT * EXCLUDE (_ingested_at), _ingested_at
+                FROM {CONFIG.silver}.{t};
+                """
+            )
+        created.append(f"{CONFIG.gold}.{t}")
     return created
 
 def platinum_transform(con: duckdb.DuckDBPyConnection) -> list[str]:
@@ -269,12 +268,12 @@ def run_all(db_path: str | None = None, source_dir: str | None = None) -> None:
         ensure_schemas(con)
         b = bronze_ingest(con, Path(source_dir) if source_dir else None)
         s = silver_transform(con, b)
-        #g = gold_transform(con)
+        g = gold_transform(con, s)
         #p = platinum_transform(con)
         con.commit()
         print("BRONZE:", b)
         print("SILVER:", s)
-        #print("GOLD:", g)
+        print("GOLD:", g)
         #print("PLATINUM:", p)
     finally:
         con.close()
