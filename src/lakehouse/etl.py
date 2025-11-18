@@ -22,6 +22,8 @@ def bronze_ingest(con: duckdb.DuckDBPyConnection, source_dir: Path | None = None
     Ingests CSV/Parquet files from /ingest into bronze.<table_name>.
     Adds an _ingested_at timestamp.
     Returns the list of created/updated bronze tables.
+
+    Yet to be implemented: store metadata for the files (e.g., file name, size, upload timestamp, data format, etc.)
     """
     ensure_schemas(con)
     src_dir = CONFIG.ingest_dir if source_dir is None else source_dir
@@ -53,7 +55,12 @@ def bronze_ingest(con: duckdb.DuckDBPyConnection, source_dir: Path | None = None
 def silver_transform(con: duckdb.DuckDBPyConnection, tables: Iterable[str] | None = None) -> list[str]:
     """
     For each bronze table, create deduplicated silver.<table_name>.
-    (You can extend this with type coercions, null handling, etc.)
+    Also cast data to better types where automatic detection did not do well.
+    Returns the list of created/updated bronze tables.
+
+    Yet to be implemented:
+        Better null handling? Try COALESCE with default values?
+        Record metadata about type casting?
     """
     ensure_schemas(con)
     if tables is None:
@@ -147,14 +154,14 @@ def silver_transform(con: duckdb.DuckDBPyConnection, tables: Iterable[str] | Non
                 FROM {CONFIG.bronze}.{t};
                 """
             )
-        # create null values from default "null"
+        # Alternative to using nullstr on bronze ingest: create null values from default "null"
         #column_names = con.execute(
         #    f"""
         #    SELECT column_name, data_type FROM information_schema.columns
         #    WHERE table_schema = '{CONFIG.bronze}' AND table_name = '{t}'
         #    """
         #).fetchall()
-        #print(column_names)
+        ##print(column_names)
         #for column_name, data_type in column_names:  #[(column_name[0], data_type[0]) for (column_name, data_type) in column_names]:
         #    if data_type == 'VARCHAR':
         #        con.execute(
@@ -213,10 +220,24 @@ def gold_transform(con: duckdb.DuckDBPyConnection, tables: Iterable[str] | None 
                     MODE(NYHCPV_csv_FMINHC) AS NYHCPV_csv_FMINHC,
                     MODE(NYHCPV_csv_FHCADATE) AS NYHCPV_csv_FHCADATE,
                     MODE(NYHCPV_csv_FNOTES) AS NYHCPV_csv_FNOTES,
-                    SUM(Shape_Length) AS Shape_Length_sum,
+                    SUM(Shape_Length) AS Shape_Length_Sum,
                     MAX(_ingested_at) AS _ingested_at
                 FROM {CONFIG.silver}.{t}
                 GROUP BY Circuits_Phase3_CIRCUIT;
+                """
+            )
+        # Collect Circuits_Phase3_CIRCUIT from utility1_circuits on matching ProjectID
+        elif t in ['utility1_install_der','utility1_planned_der']:
+            con.execute(
+                f"""
+                CREATE OR REPLACE TABLE {CONFIG.gold}.{t} AS
+                SELECT
+                    DISTINCT der.* EXCLUDE (_ingested_at),
+                    cir.Circuits_Phase3_CIRCUIT,
+                    der._ingested_at
+                FROM {CONFIG.silver}.{t} der
+                JOIN {CONFIG.silver}.utility1_circuits cir
+                ON der.ProjectID = cir.INDEX;
                 """
             )
         else:
@@ -232,48 +253,108 @@ def gold_transform(con: duckdb.DuckDBPyConnection, tables: Iterable[str] | None 
 
 def platinum_transform(con: duckdb.DuckDBPyConnection) -> list[str]:
     """
-    Aggregated/semantic layer on top of gold marts.
-    """
-    ensure_schemas(con)
-    exists_sales = bool(con.execute(
-        """
-        SELECT 1 FROM information_schema.tables
-        WHERE table_schema = ? AND table_name = 'sales'
-        """,
-        [CONFIG.gold],
-    ).fetchone())
+    Unify data model across all utilities.
+    Unify column naming convention to snake_case
 
+    TODO: add parquet output of platinum tables to decouple dependence on duckdb?
+    """
+    platinum_table_names = ['circuits','install_der','planned_der']
     created: list[str] = []
-    if exists_sales:
-        con.execute(
-            f"""
-            CREATE OR REPLACE VIEW {CONFIG.platinum}.sales_by_customer AS
-            SELECT
-              customer_id,
-              any_value(customer_name) AS customer_name,
-              COUNT(*) AS orders_count,
-              SUM(amount) AS total_amount,
-              AVG(amount) AS avg_order_value
-            FROM {CONFIG.gold}.sales
-            GROUP BY customer_id
-            ORDER BY total_amount DESC;
-            """
-        )
-        created.append(f"{CONFIG.platinum}.sales_by_customer")
+    for table_name in platinum_table_names:
+        if table_name == 'circuits':
+            con.execute(
+                f"""
+                CREATE OR REPLACE VIEW {CONFIG.platinum}.{table_name} AS
+                SELECT
+                    CAST(Circuits_Phase3_CIRCUIT AS VARCHAR) AS feeder_ID,
+                    NYHCPV_csv_FVOLTAGE AS feeder_voltage,
+                    NYHCPV_csv_FMAXHC AS feeder_max_hc,
+                    NYHCPV_csv_FMINHC AS feeder_min_hc,
+                    NYHCPV_csv_FHCADATE AS hca_date,
+                    NYHCPV_csv_NMAPCOLOR AS color,
+                    Shape_Length_Sum AS shape_length,
+                    'utility1' AS utility_name,
+                    _ingested_at
+                FROM {CONFIG.gold}.utility1_circuits
+                UNION
+                SELECT
+                    Master_CDF as feeder_ID,
+                    feeder_voltage,
+                    feeder_max_hc,
+                    feeder_min_hc,
+                    hca_refresh_date AS hca_date,
+                    color,
+                    shape_length,
+                    'utility2' AS utility_name,
+                    _ingested_at
+                FROM {CONFIG.gold}.utility2_circuits
+                """
+            )
+        elif table_name == 'install_der':
+            con.execute(
+                f"""
+                CREATE OR REPLACE VIEW {CONFIG.platinum}.{table_name} AS
+                SELECT
+                    CAST(Circuits_Phase3_CIRCUIT AS VARCHAR) AS feeder_ID,
+                    ProjectCircuitID AS der_ID,
+                    ProjectType AS der_type,
+                    NamePlateRating AS der_nameplate_rating,
+                    'utility1' AS utility_name,
+                    _ingested_at
+                FROM {CONFIG.gold}.utility1_install_der
+                UNION
+                SELECT
+                    DER_INTERCONNECTION_LOCATION AS feeder_ID,
+                    CAST(DER_ID AS VARCHAR) AS der_ID,
+                    DER_TYPE AS der_type,
+                    DER_NAMEPLATE_RATING AS der_nameplate_rating,
+                    'utility2' AS utility_name,
+                    _ingested_at
+                FROM {CONFIG.gold}.utility2_install_der
+                """
+            )
+        elif table_name == 'planned_der':
+            con.execute(
+                f"""
+                CREATE OR REPLACE VIEW {CONFIG.platinum}.{table_name} AS
+                SELECT
+                    CAST(Circuits_Phase3_CIRCUIT AS VARCHAR) AS feeder_ID,
+                    ProjectCircuitID AS der_ID,
+                    ProjectType AS der_type,
+                    NamePlateRating AS der_nameplate_rating,
+                    'utility1' AS utility_name,
+                    _ingested_at
+                FROM {CONFIG.gold}.utility1_planned_der
+                UNION
+                SELECT
+                    DER_INTERCONNECTION_LOCATION AS feeder_ID,
+                    NULL AS der_ID,
+                    DER_TYPE AS der_type,
+                    DER_NAMEPLATE_RATING AS der_nameplate_rating,
+                    'utility2' AS utility_name,
+                    _ingested_at
+                FROM {CONFIG.gold}.utility2_planned_der
+                """
+            )
+        created.append(f"{CONFIG.platinum}.{table_name}")
     return created
 
 def run_all(db_path: str | None = None, source_dir: str | None = None) -> None:
+    """
+    Yet to be implemented: back up the existing duckdb file with timestamp before starting new ELT
+    Possibilities for future development: time-travel style data versioning?
+    """
     con = duckdb.connect(str(CONFIG.db_path if db_path is None else db_path))
     try:
         ensure_schemas(con)
         b = bronze_ingest(con, Path(source_dir) if source_dir else None)
         s = silver_transform(con, b)
         g = gold_transform(con, s)
-        #p = platinum_transform(con)
+        p = platinum_transform(con)
         con.commit()
         print("BRONZE:", b)
         print("SILVER:", s)
         print("GOLD:", g)
-        #print("PLATINUM:", p)
+        print("PLATINUM:", p)
     finally:
         con.close()
