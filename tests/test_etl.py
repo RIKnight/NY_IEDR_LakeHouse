@@ -11,6 +11,8 @@ from lakehouse.etl import (
 )
 from lakehouse.db import ensure_schemas
 from lakehouse.config import CONFIG
+from lakehouse.catalog import create_table_catalog
+
 
 
 # ----------------------------
@@ -75,6 +77,7 @@ def test_bronze_silver_gold_platinum_end_to_end(tmp_path: Path):
     try:
         # ---- Bootstrap schemas
         ensure_schemas(con)
+        create_table_catalog(con)
 
         # ---- Bronze: ingest all CSVs (nullstr=['NULL','null'] is enabled in the new ETL)
         bronze_created = bronze_ingest(con, ingest)

@@ -6,6 +6,7 @@ import re
 import duckdb
 from .config import CONFIG
 from .db import ensure_schemas
+from .catalog import create_table_catalog, add_table_to_catalog
 
 def _snake(s: str) -> str:
     s = re.sub(r"[^0-9a-zA-Z]+", "_", s)
@@ -50,6 +51,7 @@ def bronze_ingest(con: duckdb.DuckDBPyConnection, source_dir: Path | None = None
                 [str(path)],
             )
         created.append(full)
+        add_table_to_catalog(con,full,f"New data from file {str(path)} in bronze layer with null values","bronze_ingest")
     return created
 
 def silver_transform(con: duckdb.DuckDBPyConnection, tables: Iterable[str] | None = None) -> list[str]:
@@ -79,6 +81,7 @@ def silver_transform(con: duckdb.DuckDBPyConnection, tables: Iterable[str] | Non
 
     created: list[str] = []
     for t in bronze_tables:
+        full = f"{CONFIG.silver}.{t}"
         #print(f"Working from table {CONFIG.bronze}.{t}:")
         if t == 'utility1_circuits':
             # adjust automatic types to numeric and timestamp with time zone and name the index
@@ -107,6 +110,7 @@ def silver_transform(con: duckdb.DuckDBPyConnection, tables: Iterable[str] | Non
                 FROM {CONFIG.bronze}.{t};
                 """
             )
+            add_table_to_catalog(con,full,f"type casting with TRY_CAST and named INDEX","silver_transform")
         elif t == 'utility2_install_der':
             con.execute(
                 f"""
@@ -118,6 +122,7 @@ def silver_transform(con: duckdb.DuckDBPyConnection, tables: Iterable[str] | Non
                 FROM {CONFIG.bronze}.{t};
                 """
             )
+            add_table_to_catalog(con,full,f"type casting with TRY_CAST","silver_transform")
         elif t == 'utility2_planned_der':
             con.execute(
                 f"""
@@ -137,6 +142,7 @@ def silver_transform(con: duckdb.DuckDBPyConnection, tables: Iterable[str] | Non
                 FROM {CONFIG.bronze}.{t};
                 """
             )
+            add_table_to_catalog(con,full,f"type casting with TRY_CAST","silver_transform")
         elif t in ['utility1_install_der','utility1_planned_der']:
             # Since utility1_circuits.Circuits_Phase3_CIRCUIT is BIGINT, need to create BIGINT columns to match
             con.execute(
@@ -154,6 +160,7 @@ def silver_transform(con: duckdb.DuckDBPyConnection, tables: Iterable[str] | Non
                 FROM {CONFIG.bronze}.{t};
                 """
             )
+            add_table_to_catalog(con,full,f"copy of bronze version","silver_transform")
         # Alternative to using nullstr on bronze ingest: create null values from default "null"
         #column_names = con.execute(
         #    f"""
@@ -174,6 +181,7 @@ def silver_transform(con: duckdb.DuckDBPyConnection, tables: Iterable[str] | Non
         #            WHERE LOWER({column_name}) = 'null';
         #            """
         #        )
+        #        add_table_to_catalog(con,full,f"transform 'null' and 'NULL' to null values","silver_transform")
         created.append(f"{CONFIG.silver}.{t}")
     return created
 
@@ -198,6 +206,7 @@ def gold_transform(con: duckdb.DuckDBPyConnection, tables: Iterable[str] | None 
 
     created: list[str] = []
     for t in silver_tables:
+        full = f"{CONFIG.gold}.{t}"
         # utility1_circuits: GROUP BY Circuits_Phase3_CIRCUIT, aggregate by MODE()
         if t == "utility1_circuits":
             con.execute(
@@ -226,6 +235,7 @@ def gold_transform(con: duckdb.DuckDBPyConnection, tables: Iterable[str] | None 
                 GROUP BY Circuits_Phase3_CIRCUIT;
                 """
             )
+            add_table_to_catalog(con,full,f"aggregation on Circuits_Phase3_CIRCUIT; mostly MODE agg","gold_transform")
         # Collect Circuits_Phase3_CIRCUIT from utility1_circuits on matching ProjectID
         elif t in ['utility1_install_der','utility1_planned_der']:
             con.execute(
@@ -240,6 +250,7 @@ def gold_transform(con: duckdb.DuckDBPyConnection, tables: Iterable[str] | None 
                 ON der.ProjectID = cir.INDEX;
                 """
             )
+            add_table_to_catalog(con,full,f"JOIN circuits.Circuits_Phase3_CIRCUIT","gold_transform")
         else:
             con.execute(
                 f"""
@@ -248,6 +259,7 @@ def gold_transform(con: duckdb.DuckDBPyConnection, tables: Iterable[str] | None 
                 FROM {CONFIG.silver}.{t};
                 """
             )
+            add_table_to_catalog(con,full,f"copy of silver version","gold_transform")
         created.append(f"{CONFIG.gold}.{t}")
     return created
 
@@ -261,6 +273,7 @@ def platinum_transform(con: duckdb.DuckDBPyConnection) -> list[str]:
     platinum_table_names = ['circuits','install_der','planned_der']
     created: list[str] = []
     for table_name in platinum_table_names:
+        full = f"{CONFIG.platinum}.{table_name}"
         if table_name == 'circuits':
             con.execute(
                 f"""
@@ -290,6 +303,7 @@ def platinum_transform(con: duckdb.DuckDBPyConnection) -> list[str]:
                 FROM {CONFIG.gold}.utility2_circuits
                 """
             )
+            add_table_to_catalog(con,full,f"union of utility1 and utility2 circuit tables","platinum_transform")
         elif table_name == 'install_der':
             con.execute(
                 f"""
@@ -313,6 +327,7 @@ def platinum_transform(con: duckdb.DuckDBPyConnection) -> list[str]:
                 FROM {CONFIG.gold}.utility2_install_der
                 """
             )
+            add_table_to_catalog(con,full,f"union of utility1 and utility2 install_der tables","platinum_transform")
         elif table_name == 'planned_der':
             con.execute(
                 f"""
@@ -336,6 +351,7 @@ def platinum_transform(con: duckdb.DuckDBPyConnection) -> list[str]:
                 FROM {CONFIG.gold}.utility2_planned_der
                 """
             )
+            add_table_to_catalog(con,full,f"union of utility1 and utility2 planned_der tables","platinum_transform")
         created.append(f"{CONFIG.platinum}.{table_name}")
     return created
 
@@ -347,11 +363,13 @@ def run_all(db_path: str | None = None, source_dir: str | None = None) -> None:
     con = duckdb.connect(str(CONFIG.db_path if db_path is None else db_path))
     try:
         ensure_schemas(con)
+        c = create_table_catalog(con)
         b = bronze_ingest(con, Path(source_dir) if source_dir else None)
         s = silver_transform(con, b)
         g = gold_transform(con, s)
         p = platinum_transform(con)
         con.commit()
+        print("CATALOG:", c)
         print("BRONZE:", b)
         print("SILVER:", s)
         print("GOLD:", g)
