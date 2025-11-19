@@ -5,6 +5,7 @@ from __future__ import annotations
 import duckdb
 import getpass
 from .config import CONFIG
+from .__init__ import __version__ as VERSION
 
 # get the username
 USERNAME = getpass.getuser()
@@ -23,6 +24,7 @@ def create_table_catalog(con: duckdb.DuckDBPyConnection) -> list[str]:
             table_name VARCHAR,
             description VARCHAR,
             source_system VARCHAR,
+            lakehouse_version VARCHAR,
             created_by VARCHAR,
             last_updated TIMESTAMP
         )
@@ -38,6 +40,7 @@ def create_table_catalog(con: duckdb.DuckDBPyConnection) -> list[str]:
             column_name VARCHAR,
             data_type VARCHAR,
             description VARCHAR,
+            lakehouse_version VARCHAR,
             is_primary_key BOOLEAN
         )
         """
@@ -48,14 +51,14 @@ def create_table_catalog(con: duckdb.DuckDBPyConnection) -> list[str]:
     # Note: this meta-metadata may be too much. (TBD)
     con.execute(
         f"""
-        INSERT INTO {CONFIG.catalog}.tables (table_name, description, source_system, created_by, last_updated)
-        VALUES ('{CONFIG.catalog}.tables', 'Metadata for Lakehouse Tables', 'Data Catalog', '{USERNAME}', NOW())
+        INSERT INTO {CONFIG.catalog}.tables (table_name, description, source_system, lakehouse_version, created_by, last_updated)
+        VALUES ('{CONFIG.catalog}.tables', 'Metadata for Lakehouse Tables', 'Data Catalog', '{VERSION}', '{USERNAME}', NOW())
         """
     )
     con.execute(
         f"""
-        INSERT INTO {CONFIG.catalog}.tables (table_name, description, source_system, created_by, last_updated)
-        VALUES ('{CONFIG.catalog}.columns', 'Metadata for Lakehouse Columns', 'Data Catalog', '{USERNAME}', NOW())
+        INSERT INTO {CONFIG.catalog}.tables (table_name, description, source_system, lakehouse_version, created_by, last_updated)
+        VALUES ('{CONFIG.catalog}.columns', 'Metadata for Lakehouse Columns', 'Data Catalog', '{VERSION}', '{USERNAME}', NOW())
         """
     )
 
