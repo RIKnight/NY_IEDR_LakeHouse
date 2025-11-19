@@ -8,5 +8,5 @@ def connect(db_path: str | None = None) -> duckdb.DuckDBPyConnection:
     return duckdb.connect(path)
 
 def ensure_schemas(con: duckdb.DuckDBPyConnection) -> None:
-    for schema in (CONFIG.bronze, CONFIG.silver, CONFIG.gold, CONFIG.platinum):
+    for schema in (CONFIG.bronze, CONFIG.silver, CONFIG.gold, CONFIG.platinum, CONFIG.catalog):
         con.execute(f"CREATE SCHEMA IF NOT EXISTS {schema}")

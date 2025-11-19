@@ -11,10 +11,10 @@ def test_schemas_exist(tmp_path: Path):
         ensure_schemas(con)
         rows = con.execute("""
             SELECT schema_name FROM information_schema.schemata
-            WHERE schema_name IN (?, ?, ?, ?)
+            WHERE schema_name IN (?, ?, ?, ?, ?)
             ORDER BY schema_name
-        """, [CONFIG.bronze, CONFIG.silver, CONFIG.gold, CONFIG.platinum]).fetchall()
+        """, [CONFIG.bronze, CONFIG.silver, CONFIG.gold, CONFIG.platinum, CONFIG.catalog]).fetchall()
         names = [r[0] for r in rows]
-        assert names == sorted([CONFIG.bronze, CONFIG.silver, CONFIG.gold, CONFIG.platinum])
+        assert names == sorted([CONFIG.bronze, CONFIG.silver, CONFIG.gold, CONFIG.platinum, CONFIG.catalog])
     finally:
         con.close()

@@ -19,10 +19,12 @@ NY_IDER_LakeHouse/
 │  └─ lakehouse/
 │     ├─ __init__.py
 │     ├─ __main__.py
+│     ├─ catalog.py
 │     ├─ config.py
 │     ├─ db.py
 │     └─ etl.py
 └─ tests/
+   ├─ test_catalog.py
    ├─ test_schema.py
    └─ test_etl.py
 
@@ -122,6 +124,9 @@ duckcli ./data/lakehouse.duckdb
 pytest -q
 ```
 
+## Data Catalog
+
+This package contains code for documenting and organizing information about data assets within the lakehouse.  This data catalog resides in its own schema within the duckdb database called `catalog`.  Information in the data catalog can be used for data lineage tracking, data versioning, and accountability tracing.
 
 ## Notes
 
@@ -158,7 +163,7 @@ docker run --rm -it -v "$(pwd)/ingest:/ingest" -v "$(pwd)/data:/data" duckdb-lak
 
 ## Acknowlegements
 
-This architecture in this package was designed with the help of Microsoft Copilot (GPT-5).  To get started, I gave it the following prompt: "Help me design a lightweight data lakehouse based on duckDB and Python 3.12 in a Docker container.  Include a docker bind mount for ingesting data from the host and for data persistence.  Include an SQL REPL that can be launched as the Docker run command. In Python code, build a medallion architecture in the duckDB with bronze, silver, gold, and platinum layers.  Include pytest unit testing for duckDB schema, tables and ETL routines."
+This architecture in this package was designed with the help of Microsoft Copilot (GPT-5).  To get started, I gave it the following prompt: "Help me design a lightweight data lakehouse based on duckDB and Python 3.12 in a Docker container.  Include a docker bind mount for ingesting data from the host and for data persistence.  Include an SQL REPL that can be launched as the Docker run command. In Python code, build a medallion architecture in the duckDB with bronze, silver, gold, and platinum layers.  Include pytest unit testing for duckDB schema, tables and ETL routines."  Later on, after crafting the particular ELT code for this project, I prompted again: "I have re-written the file etl.py.  Please re-write the file test_etl.py to test this new ETL version.  The new etl.py is attached."
 
 
 ## Copyright

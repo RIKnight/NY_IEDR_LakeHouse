@@ -14,4 +14,7 @@ class Config:
     gold: str   = "gold"
     platinum: str = "platinum"
 
+    # Data Catalog schema
+    catalog: str = "catalog"
+
 CONFIG = Config()
