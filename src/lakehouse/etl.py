@@ -67,7 +67,7 @@ def bronze_profile(con: duckdb.DuckDBPyConnection,
 
     """
     ensure_schemas(con)
-    profile_dir = CONFIG.profile_dir if profile_dir is None else profile_dir
+    prof_dir = CONFIG.profile_dir if profile_dir is None else profile_dir
     if tables is None:
         rows = con.execute(
             """
@@ -85,7 +85,7 @@ def bronze_profile(con: duckdb.DuckDBPyConnection,
     created: list[str] = []
     for t in bronze_tables:
         full = f"{CONFIG.bronze}.{t}"
-        save_file = str(profile_dir / f"{full}_summary.csv")[1:]
+        save_file = str(prof_dir / f"{full}_summary.csv")
         summary_df = con.execute(
             f"""
             SUMMARIZE {full}
@@ -401,9 +401,7 @@ def platinum_transform(con: duckdb.DuckDBPyConnection) -> list[str]:
     return created
 
 
-def run_all(db_path: str | None = None,
-            source_dir: str | None = None,
-            profile_dir: str | None = None) -> None:
+def run_all(db_path: str | None = None, source_dir: str | None = None) -> None:
     """
     Yet to be implemented: back up the existing duckdb file with timestamp before starting new ELT
     Possibilities for future development: time-travel style data versioning?
@@ -413,7 +411,7 @@ def run_all(db_path: str | None = None,
         ensure_schemas(con)
         c = create_table_catalog(con)
         b = bronze_ingest(con, Path(source_dir) if source_dir else None)
-        f = bronze_profile(con, b, Path(profile_dir) if profile_dir else None)
+        f = bronze_profile(con, b, Path(db_path).parent if db_path else None)
         s = silver_transform(con, b)
         g = gold_transform(con, s)
         p = platinum_transform(con)
