@@ -5,6 +5,7 @@ import os
 
 @dataclass(frozen=True)
 class Config:
+    profile_dir: Path = Path(os.getenv("LAKEHOUSE_PROFILE", "/data"))
     db_path: Path = Path(os.getenv("LAKEHOUSE_DB", "/data/lakehouse.duckdb"))
     ingest_dir: Path = Path(os.getenv("LAKEHOUSE_INGEST", "/ingest"))
 

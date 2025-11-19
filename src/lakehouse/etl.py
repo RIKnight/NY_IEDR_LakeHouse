@@ -4,19 +4,23 @@ from pathlib import Path
 from typing import Iterable
 import re
 import duckdb
+import os
 from .config import CONFIG
 from .db import ensure_schemas
 from .catalog import create_table_catalog, add_table_to_catalog
+
 
 def _snake(s: str) -> str:
     s = re.sub(r"[^0-9a-zA-Z]+", "_", s)
     s = re.sub(r"_+", "_", s).strip("_")
     return s.lower()
 
+
 def discover_sources(ingest_dir: Path) -> list[Path]:
     ingest_dir.mkdir(parents=True, exist_ok=True)
     exts = {".csv", ".parquet"}
     return sorted([p for p in ingest_dir.iterdir() if p.suffix.lower() in exts and p.is_file()])
+
 
 def bronze_ingest(con: duckdb.DuckDBPyConnection, source_dir: Path | None = None) -> list[str]:
     """
@@ -53,6 +57,45 @@ def bronze_ingest(con: duckdb.DuckDBPyConnection, source_dir: Path | None = None
         created.append(full)
         add_table_to_catalog(con,full,f"New data from file {str(path)} in bronze layer with null values","bronze_ingest")
     return created
+
+
+def bronze_profile(con: duckdb.DuckDBPyConnection,
+                   tables: Iterable[str] | None = None,
+                   profile_dir: Path | None = None) -> list[str]:
+    """
+    Store the profile of the data at the bronze level as csv files in the data profile dir
+
+    """
+    ensure_schemas(con)
+    profile_dir = CONFIG.profile_dir if profile_dir is None else profile_dir
+    if tables is None:
+        rows = con.execute(
+            """
+            SELECT table_name
+            FROM information_schema.tables
+            WHERE table_schema = ?
+            ORDER BY 1
+            """,
+            [CONFIG.bronze],
+        ).fetchall()
+        bronze_tables = [r[0] for r in rows]
+    else:
+        bronze_tables = [t.split(".")[-1] for t in tables]
+
+    created: list[str] = []
+    for t in bronze_tables:
+        full = f"{CONFIG.bronze}.{t}"
+        save_file = str(profile_dir / f"{full}_summary.csv")[1:]
+        summary_df = con.execute(
+            f"""
+            SUMMARIZE {full}
+            """
+        ).df()
+        summary_df.to_csv(os.path.join(os.getcwd(), save_file), index=False)
+        created.append(save_file)
+
+    return created
+
 
 def silver_transform(con: duckdb.DuckDBPyConnection, tables: Iterable[str] | None = None) -> list[str]:
     """
@@ -185,6 +228,7 @@ def silver_transform(con: duckdb.DuckDBPyConnection, tables: Iterable[str] | Non
         created.append(f"{CONFIG.silver}.{t}")
     return created
 
+
 def gold_transform(con: duckdb.DuckDBPyConnection, tables: Iterable[str] | None = None) -> list[str]:
     """
     Aggregates circuit segments into circuits in utility1 tables
@@ -262,6 +306,7 @@ def gold_transform(con: duckdb.DuckDBPyConnection, tables: Iterable[str] | None 
             add_table_to_catalog(con,full,f"copy of silver version","gold_transform")
         created.append(f"{CONFIG.gold}.{t}")
     return created
+
 
 def platinum_transform(con: duckdb.DuckDBPyConnection) -> list[str]:
     """
@@ -355,7 +400,10 @@ def platinum_transform(con: duckdb.DuckDBPyConnection) -> list[str]:
         created.append(f"{CONFIG.platinum}.{table_name}")
     return created
 
-def run_all(db_path: str | None = None, source_dir: str | None = None) -> None:
+
+def run_all(db_path: str | None = None,
+            source_dir: str | None = None,
+            profile_dir: str | None = None) -> None:
     """
     Yet to be implemented: back up the existing duckdb file with timestamp before starting new ELT
     Possibilities for future development: time-travel style data versioning?
@@ -365,6 +413,7 @@ def run_all(db_path: str | None = None, source_dir: str | None = None) -> None:
         ensure_schemas(con)
         c = create_table_catalog(con)
         b = bronze_ingest(con, Path(source_dir) if source_dir else None)
+        f = bronze_profile(con, b, Path(profile_dir) if profile_dir else None)
         s = silver_transform(con, b)
         g = gold_transform(con, s)
         p = platinum_transform(con)
@@ -374,5 +423,6 @@ def run_all(db_path: str | None = None, source_dir: str | None = None) -> None:
         print("SILVER:", s)
         print("GOLD:", g)
         print("PLATINUM:", p)
+        print("BRONZE PROFILE:", f)
     finally:
         con.close()

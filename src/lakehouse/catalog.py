@@ -79,6 +79,6 @@ def create_table_catalog(con: duckdb.DuckDBPyConnection) -> list[str]:
     # Self-document creation of Data Catalog tables
     # Note: this meta-metadata may be too much. (TBD)
     add_table_to_catalog(con, f"{CONFIG.catalog}.tables", "Metadata for Lakehouse Tables", "Data Catalog")
-    add_table_to_catalog(con, f"{CONFIG.catalog}.tables", "Metadata for Lakehouse Tables", "Data Catalog")
+    add_table_to_catalog(con, f"{CONFIG.catalog}.columns", "Metadata for Lakehouse Columns", "Data Catalog")
 
     return(created)

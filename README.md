@@ -128,6 +128,11 @@ pytest -q
 
 This package contains code for documenting and organizing information about data assets within the lakehouse.  This data catalog resides in its own schema within the duckdb database called `catalog`.  Information in the data catalog can be used for data lineage tracking, data versioning, and accountability tracing.
 
+## Data Profiling
+
+Part of the ETL process in this package includes data profiling using the duckdb `SUMMARIZE` command for the bronze tables.
+These profiles are saved as csv files in the same directory as the duckdb file.
+
 ## Notes
 
 * Bronze layer auto-discovers *.csv and *.parquet in /ingest.
