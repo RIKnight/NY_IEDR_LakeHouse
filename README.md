@@ -5,7 +5,7 @@ This package is a complete, lightweight DuckDB + Python 3.12 lakehouse you can r
 * Bind mounts for ingesting data from your host (./ingest) and persisting the DuckDB file (./data).
 * An SQL REPL as the Docker default command (using duckcli) so docker run drops you straight into SQL.
 * Python code that builds a medallion architecture: bronze, silver, gold, platinum.
-* pytest unit tests for schema, tables, and ETL routines.
+* pytest unit tests for schema, catalog, tables, and ETL routines.
 
 
 ## Project Layout
@@ -65,6 +65,7 @@ mkdir -p ./ingest ./data
 
 * Put source files to ingest in `./ingest` (CSV or Parquet).
 * The DuckDB file will persist at `./data/lakehouse.duckdb`.
+* The data profile csv files will persist at `./data/<table>_summary.csv`
 
 
 ## Start SQL REPL (default)
@@ -98,6 +99,7 @@ These tests create temporary data and a temporary DuckDB file so they don’t to
 * Schemas exist.
 * Bronze/Silver/Gold/Platinum tables & views are produced.
 * ETL logic (row counts and simple aggregations).
+* Data Catalog is created.
 
 Run inside the container with: `pytest -q`
 
@@ -135,12 +137,14 @@ These profiles are saved as csv files in the same directory as the duckdb file.
 
 ## Notes
 
-* Bronze layer auto-discovers *.csv and *.parquet in /ingest.
-* Silver layer deduplicates and preserves _ingested_at.
-* Gold/Platinum examples kick in if customers and orders are present.
-* Customize etl.py for real-world cleansing/typing/PK-FK enforcement.
+* Bronze layer auto-discovers *.csv and *.parquet in /ingest, and transforms text that says 'NULL' or 'null' into null values.
+* Silver layer deduplicates rows, corrects column data types, and preserves _ingested_at.
+* Gold layer aggregates circuit segment data into circiut data.
+* Platinum layer combines utility data into uniform style for use by single API.
+* Data Catalog records data about each table (and column, WIP) including username and ELT version.
+* Data profiling is done on bronze tables and exported to .csv files.
 
-## Extending the Medallion patterns (optional ideas)
+### Extending the Medallion patterns (potential future enhancements, not yet implemented)
 
 * Bronze: Store file metadata (file name, size, modification time, checksum) in a control table to support idempotent loads and replay.
 * Silver: Apply enforced types, null-value policies, and constraint checks (e.g., NOT NULL on business keys).
